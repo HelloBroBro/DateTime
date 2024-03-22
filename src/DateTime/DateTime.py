@@ -33,10 +33,6 @@ from .interfaces import TimeError
 from .pytz_support import PytzCache
 
 
-basestring = str
-long = int
-explicit_unicode_type = type(None)
-
 default_datefmt = None
 
 
@@ -210,14 +206,14 @@ def _calcDependentSecond(tz, t):
     # Calculates the timezone-dependent second (integer part only)
     # from the timezone-independent second.
     fset = _tzoffset(tz, t)
-    return fset + long(math.floor(t)) + long(EPOCH) - 86400
+    return fset + int(math.floor(t)) + int(EPOCH) - 86400
 
 
 def _calcDependentSecond2(yr, mo, dy, hr, mn, sc):
     # Calculates the timezone-dependent second (integer part only)
     # from the date given.
     ss = int(hr) * 3600 + int(mn) * 60 + int(sc)
-    x = long(_julianday(yr, mo, dy) - jd1901) * 86400 + ss
+    x = int(_julianday(yr, mo, dy) - jd1901) * 86400 + ss
     return x
 
 
@@ -225,14 +221,14 @@ def _calcIndependentSecondEtc(tz, x, ms):
     # Derive the timezone-independent second from the timezone
     # dependent second.
     fsetAtEpoch = _tzoffset(tz, 0.0)
-    nearTime = x - fsetAtEpoch - long(EPOCH) + 86400 + ms
+    nearTime = x - fsetAtEpoch - int(EPOCH) + 86400 + ms
     # nearTime is now within an hour of being correct.
     # Recalculate t according to DST.
-    fset = long(_tzoffset(tz, nearTime))
+    fset = int(_tzoffset(tz, nearTime))
     d = (x - fset) / 86400.0 + (ms / 86400.0)
-    t = x - fset - long(EPOCH) + 86400 + ms
+    t = x - fset - int(EPOCH) + 86400 + ms
     micros = (x + 86400 - fset) * 1000000 + \
-        long(round(ms * 1000000.0)) - long(EPOCH * 1000000.0)
+        int(round(ms * 1000000.0)) - int(EPOCH * 1000000.0)
     s = d - math.floor(d)
     return (s, d, t, micros)
 
@@ -259,7 +255,7 @@ def _calcYMDHMS(x, ms):
 
 
 def _julianday(yr, mo, dy):
-    y, m, d = long(yr), long(mo), long(dy)
+    y, m, d = int(yr), int(mo), int(dy)
     if m > 12:
         y = y + m // 12
         m = m % 12
@@ -282,7 +278,7 @@ def _julianday(yr, mo, dy):
 
 
 def _calendarday(j):
-    j = long(j)
+    j = int(j)
     if (j < 2299160):
         b = j + 1525
     else:
@@ -446,24 +442,26 @@ class DateTime:
             raise SyntaxError('Unable to parse {}, {}'.format(args, kw))
 
     def __getstate__(self):
-        # We store a float of _micros, instead of the _micros long, as we most
-        # often don't have any sub-second resolution and can save those bytes
-        return (self._micros / 1000000.0,
+        return (self._micros,
                 getattr(self, '_timezone_naive', False),
                 self._tz)
 
     def __setstate__(self, value):
         if isinstance(value, tuple):
-            self._parse_args(value[0], value[2])
-            self._micros = long(value[0] * 1000000)
-            self._timezone_naive = value[1]
+            micros, tz_naive, tz = value
+            if isinstance(micros, float):
+                # BBB: support for pickle where micros was a float
+                micros = int(micros * 1000000)
+            self._parse_args(micros / 1000000., tz)
+            self._micros = micros
+            self._timezone_naive = tz_naive
         else:
             for k, v in value.items():
                 if k in self.__slots__:
                     setattr(self, k, v)
             # BBB: support for very old DateTime pickles
             if '_micros' not in value:
-                self._micros = long(value['_t'] * 1000000)
+                self._micros = int(value['_t'] * 1000000)
             if '_timezone_naive' not in value:
                 self._timezone_naive = False
 
@@ -731,7 +729,7 @@ class DateTime:
                     tz = self._calcTimezoneName(x, ms)
                 s, d, t, microsecs = _calcIndependentSecondEtc(tz, x, ms)
 
-            elif (isinstance(arg, basestring) and
+            elif (isinstance(arg, str) and
                   arg.lower() in _TZINFO._zidx):
                 # Current time, to be displayed in specified timezone
                 t, tz = time(), _TZINFO._zmap[arg.lower()]
@@ -741,7 +739,7 @@ class DateTime:
                 x = _calcDependentSecond(tz, t)
                 yr, mo, dy, hr, mn, sc = _calcYMDHMS(x, ms)
 
-            elif isinstance(arg, basestring):
+            elif isinstance(arg, str):
                 # Date/time string
                 iso8601 = iso8601Match(arg.strip())
                 fields_iso8601 = iso8601 and iso8601.groupdict() or {}
@@ -781,7 +779,7 @@ class DateTime:
                 sc = sc + ms
 
         elif ac == 2:
-            if isinstance(args[1], basestring):
+            if isinstance(args[1], str):
                 # Seconds from epoch (gmt) and timezone
                 t, tz = args
                 ms = (t - math.floor(t))
@@ -805,7 +803,7 @@ class DateTime:
                 x_float = d * 86400.0
                 x_floor = math.floor(x_float)
                 ms = x_float - x_floor
-                x = long(x_floor)
+                x = int(x_floor)
                 yr, mo, dy, hr, mn, sc = _calcYMDHMS(x, ms)
                 s, d, t, microsecs = _calcIndependentSecondEtc(tz, x, ms)
         else:
@@ -857,9 +855,9 @@ class DateTime:
         self._hour, self._minute, self._second = hr, mn, sc
         self.time, self._d, self._tz = s, d, tz
         # self._micros is the time since the epoch
-        # in long integer microseconds.
+        # in integer microseconds.
         if microsecs is None:
-            microsecs = long(round(t * 1000000.0))
+            microsecs = int(round(t * 1000000.0))
         self._micros = microsecs
 
     def localZone(self, ltm=None):
@@ -879,7 +877,7 @@ class DateTime:
         if not _multipleZones:
             return _localzone0
         fsetAtEpoch = _tzoffset(_localzone0, 0.0)
-        nearTime = x - fsetAtEpoch - long(EPOCH) + 86400 + ms
+        nearTime = x - fsetAtEpoch - int(EPOCH) + 86400 + ms
         # nearTime is within an hour of being correct.
         try:
             ltm = safelocaltime(nearTime)
@@ -891,7 +889,7 @@ class DateTime:
             yr, mo, dy, hr, mn, sc = _calcYMDHMS(x, 0)
             yr = ((yr - 1970) % 28) + 1970
             x = _calcDependentSecond2(yr, mo, dy, hr, mn, sc)
-            nearTime = x - fsetAtEpoch - long(EPOCH) + 86400 + ms
+            nearTime = x - fsetAtEpoch - int(EPOCH) + 86400 + ms
 
             # nearTime might still be negative if we are east of Greenwich.
             # But we can assume on 1969/12/31 were no timezone changes.
@@ -1244,12 +1242,12 @@ class DateTime:
         than the specified DateTime or time module style time.
 
         Revised to give more correct results through comparison of
-        long integer microseconds.
+        integer microseconds.
         """
         if t is None:
             return True
         if isinstance(t, (float, int)):
-            return self._micros > long(t * 1000000)
+            return self._micros > int(t * 1000000)
         try:
             return self._micros > t._micros
         except AttributeError:
@@ -1267,12 +1265,12 @@ class DateTime:
         time.
 
         Revised to give more correct results through comparison of
-        long integer microseconds.
+        integer microseconds.
         """
         if t is None:
             return True
         if isinstance(t, (float, int)):
-            return self._micros >= long(t * 1000000)
+            return self._micros >= int(t * 1000000)
         try:
             return self._micros >= t._micros
         except AttributeError:
@@ -1289,12 +1287,12 @@ class DateTime:
         the specified DateTime or time module style time.
 
         Revised to give more correct results through comparison of
-        long integer microseconds.
+        integer microseconds.
         """
         if t is None:
             return False
         if isinstance(t, (float, int)):
-            return self._micros == long(t * 1000000)
+            return self._micros == int(t * 1000000)
         try:
             return self._micros == t._micros
         except AttributeError:
@@ -1309,7 +1307,7 @@ class DateTime:
         to the specified DateTime or time module style time.
 
         Revised to give more correct results through comparison of
-        long integer microseconds.
+        integer microseconds.
         """
         return not self.equalTo(t)
 
@@ -1336,12 +1334,12 @@ class DateTime:
         the specified DateTime or time module style time.
 
         Revised to give more correct results through comparison of
-        long integer microseconds.
+        integer microseconds.
         """
         if t is None:
             return False
         if isinstance(t, (float, int)):
-            return self._micros < long(t * 1000000)
+            return self._micros < int(t * 1000000)
         try:
             return self._micros < t._micros
         except AttributeError:
@@ -1358,12 +1356,12 @@ class DateTime:
         or equal to the specified DateTime or time module style time.
 
         Revised to give more correct results through comparison of
-        long integer microseconds.
+        integer microseconds.
         """
         if t is None:
             return False
         if isinstance(t, (float, int)):
-            return self._micros <= long(t * 1000000)
+            return self._micros <= int(t * 1000000)
         try:
             return self._micros <= t._micros
         except AttributeError:
@@ -1551,15 +1549,9 @@ class DateTime:
         tzdiff = _tzoffset(ltz, self._t) - _tzoffset(self._tz, self._t)
         zself = self + tzdiff / 86400.0
         microseconds = int((zself._second - zself._nearsec) * 1000000)
-        unicode_format = False
-        if isinstance(format, explicit_unicode_type):
-            format = format.encode('utf-8')
-            unicode_format = True
         ds = datetime(zself._year, zself._month, zself._day, zself._hour,
                       zself._minute, int(zself._nearsec),
                       microseconds).strftime(format)
-        if unicode_format:
-            return ds.decode('utf-8')
         return ds
 
     # General formats from previous DateTime
@@ -1748,7 +1740,7 @@ class DateTime:
         omicros = round(o * 86400000000)
         tmicros = self.micros() + omicros
         t = tmicros / 1000000.0
-        d = (tmicros + long(EPOCH * 1000000)) / 86400000000.0
+        d = (tmicros + int(EPOCH * 1000000)) / 86400000000.0
         s = d - math.floor(d)
         ms = t - math.floor(t)
         x = _calcDependentSecond(tz, t)
@@ -1805,10 +1797,6 @@ class DateTime:
     def __int__(self):
         """Convert to an integer number of seconds since the epoch (gmt)."""
         return int(self.micros() // 1000000)
-
-    def __long__(self):
-        """Convert to a long-int number of seconds since the epoch (gmt)."""
-        return long(self.micros() // 1000000)  # pragma: PY2
 
     def __float__(self):
         """Convert to floating-point number of seconds since the epoch (gmt).
